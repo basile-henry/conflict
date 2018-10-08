@@ -1,0 +1,6 @@
+[start] // Start of the program
+a = 2 // test
+b = 3
+input c
+if (a * c - b) start
+print "Done"
