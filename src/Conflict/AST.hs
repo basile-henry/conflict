@@ -1,9 +1,10 @@
 module Conflict.AST where
 
+-- text
 import           Data.Text
 
 -- | A full @Conflict@ program made up of a many 'Statement's
-newtype Program = Program [Statement]
+newtype Program = Program [Statement] deriving (Show, Eq)
 
 -- | A single statement, corresponds a line in the 'Program' with the exception
 --   of the 'Conflict' statement which always spans at least 3 lines (when both
@@ -33,23 +34,76 @@ data Statement
   | Anchor Label
   -- ^ A label anchor to go to.
   --
+  --   @
+  --   [start]
+  --   @
+  --
   --   Multiple anchors with the same label have undefined behaviour, either one
   --   could be used.
   | GoTo Label
   -- ^ An unconditional go to.
   | Branch Expr Label
-  -- ^ A conditional go to (Go to the label if the condition is True).
+  -- ^ A conditional go to (Go to the label if the condition is /truthy/).
   | Print Expr
   -- ^ Print the result of an expression and a newline to STDOUT.
-  | Input
+  | Input Var
   -- ^ Read a line from STDIN.
+  deriving (Show, Eq)
 
 -- | An expression to compute a value.
 data Expr
+  = GT LExpr LExpr
+  | LT LExpr LExpr
+  | GE LExpr LExpr
+  | LE LExpr LExpr
+  | NE LExpr LExpr
+  | EQ LExpr LExpr
+  | Expr LExpr
+  deriving (Show, Eq)
+
+-- | An expression to compute a value.
+data LExpr
+  = Plus Term LExpr
+  -- ^ Add two expressions:
+  --
+  --   - Addition on two Integers
+  --   - Concatanation on two Strings
+  --   - Cast both to Integers and do addition otherwise
+  --
+  -- Results in an Integer.
+  | Sub Term LExpr
+  -- ^ Subtract two expressions:
+  --
+  --   Cast both to Integers and do subtraction
+  --
+  --   Results in an Integer.
+  | Or Term LExpr
+  -- ^ Logical /or/ between two expressions:
+  --
+  --   Cast both to Bools and do subtraction
+  --
+  --   Results in a Bool.
+  | LExpr Term
+  deriving (Show, Eq)
+
+data Term
+  = Mul Factor Term
+  | Div Factor Term
+  | Mod Factor Term
+  | And Factor Term
+  | Term Factor
+  deriving (Show, Eq)
+
+data Factor
   = Lit Literal
-  -- ^ A literal
-  | VarExpr Var
-  -- ^ A variable (previously defined or not)
+  -- ^ A literal.
+  | Variable Var
+  -- ^ A variable (previously defined or not).
+  | Parens LExpr
+  -- ^ An expression group.
+  | Not LExpr
+  -- ^ Logical negation.
+  deriving (Show, Eq)
 
 -- | A variable holding a value (string, boolean or integer)
 --
@@ -71,11 +125,11 @@ data Expr
 --
 --   It will print @"0\n"@, whereas if the @b = a + 2@ wasn't there it would
 --   infer the type of @a@ to be a String and print @"\n"@
-newtype Var = Var Text
+newtype Var = Var Text deriving (Show, Eq)
 
 -- | A label used to match anchors and GoTos (both conditional and
 --   unconditional).
-newtype Label = Label Text
+newtype Label = Label Text deriving (Show, Eq)
 
 -- | Literals for boolean, strings, and integers
 --
@@ -92,12 +146,11 @@ data Literal
   -- ^ Integers are unbounded.
   | StringLit Text
   -- ^ String literals are surrounded by double quotes.
-  --   Expressions can be spliced into strings literals using a @${ ... }@
-  --   block, where @...@ is the expression.
   --   The following escaped characters are supported with their usual meaning:
   --
   --   @
-  --   ['\n', '\r', '\t', '\"', \'\\$', \'\\\\']
+  --   ['\n', '\r', '\t', '\"', \'\\\\']
   --   @
   --
   --   Strings support Unicode.
+  deriving (Show, Eq)
