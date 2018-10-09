@@ -1,0 +1,9 @@
+[start] // Start of the program
+a = 2 // test
+<<<<<<< Start of conflict
+b = 3
+=======
+>>>>>>> End of conflict
+input c
+if (a * c - b) start
+print "Done"
