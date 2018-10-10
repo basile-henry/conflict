@@ -1,4 +1,3 @@
-{-# LANGUAGE ApplicativeDo     #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
 
@@ -30,7 +29,10 @@ parser name
   . runParser program name
 
 program :: Parser Program
-program = Program <$> many statement <* eof
+program
+  =   Program
+  <$> many (many endOfLine *> statement <* many endOfLine)
+  <*  eof
 
 whitespace :: Parser ()
 whitespace = void $ many (char ' ' <|> char '\t')
@@ -42,8 +44,8 @@ endOfLine = do
   comment <|> void newline
   where
     comment = try $ do
-      chunk "//"
-      many (anySingleBut '\n')
+      void $ chunk "//"
+      void $ many (anySingleBut '\n')
       void newline
 
 --------------------------------------------------
@@ -59,7 +61,6 @@ statement =
     , goto
     , branch
     , print
-    -- Check for assignment last
     , assign
     ]
 
@@ -72,59 +73,50 @@ conflict = do
   conflictLine ">>>>>>>"
   pure $ Conflict as bs
   where
-    conflictLine str =
-      chunk str <* skipManyTill (anySingleBut '\n') newline
+    conflictLine str = do
+      void $ chunk str
+      void $ skipManyTill (anySingleBut '\n') newline
 
 assign :: Parser Statement
 assign = do
   v <- var
   whitespace
-  single '='
+  void $ single '='
   whitespace
   e <- expr
-  whitespace
-  optional endOfLine
   pure $ Assign v e
 
-
 anchor :: Parser Statement
-anchor = do
-  l <- between (single '[') (single ']') label
-  endOfLine
-  pure $ Anchor l
+anchor = Anchor <$> between (single '[') (single ']') label
 
 goto :: Parser Statement
 goto = do
-  chunk "goto"
+  void $ chunk "goto"
   whitespace
   l <- label
-  endOfLine
   pure $ GoTo l
 
 branch :: Parser Statement
 branch = do
-  chunk "if"
+  void $ chunk "if"
   whitespace
   e <- expr
   whitespace
   l <- label
-  endOfLine
   pure $ Branch e l
 
 print :: Parser Statement
 print = do
-  chunk "print"
+  void $ chunk "print"
   whitespace
   e <- expr
-  endOfLine
   pure $ Print e
 
 input :: Parser Statement
 input = do
-  chunk "input"
+  void $ chunk "input"
   whitespace
   v <- var
-  endOfLine
   pure $ Input v
 
 --------------------------------------------------
@@ -136,16 +128,16 @@ expr = do
   a <- lExpr
   let helper cons sep = try $ do
         whitespace
-        sep
+        void $ chunk sep
         whitespace
         cons a <$> lExpr
   choice
-    [ helper GT $ chunk ">"
-    , helper LT $ chunk "<"
-    , helper GE $ chunk "<="
-    , helper LE $ chunk "<="
-    , helper NE $ chunk "!="
-    , helper EQ $ chunk "=="
+    [ helper GT ">"
+    , helper LT "<"
+    , helper GE "<="
+    , helper LE "<="
+    , helper NE "!="
+    , helper EQ "=="
     , pure $ Expr a
     ]
 
@@ -158,13 +150,13 @@ lExpr = do
   a <- term
   let helper cons sep = try $ do
         whitespace
-        sep
+        void $ chunk sep
         whitespace
         cons a <$> lExpr
   choice
-    [ helper Plus $ chunk "+"
-    , helper Sub  $ chunk "-"
-    , helper Or   $ chunk "||"
+    [ helper Plus "+"
+    , helper Sub  "-"
+    , helper Or   "||"
     , pure $ LExpr a
     ]
 
@@ -177,14 +169,14 @@ term = do
   a <- factor
   let helper cons sep = try $ do
         whitespace
-        sep
+        void $ chunk sep
         whitespace
         cons a <$> term
   choice
-    [ helper Mul $ chunk "*"
-    , helper Div $ chunk "/"
-    , helper Mod $ chunk "%"
-    , helper And $ chunk "&&"
+    [ helper Mul "*"
+    , helper Div "/"
+    , helper Mod "%"
+    , helper And "&&"
     , pure $ Term a
     ]
 
@@ -201,13 +193,11 @@ factor =
     , not
     ]
   where
-    parens = do
-      single '('
-      whitespace
-      l <- lExpr
-      whitespace
-      single ')'
-      pure $ Parens l
+    parens = Parens <$>
+      between
+        (single '(' *> whitespace)
+        (whitespace <* single ')')
+        lExpr
 
     not = Not <$ single '~' <* whitespace <*> lExpr
 
@@ -219,7 +209,11 @@ var :: Parser Var
 var = do
   c  <- lowerChar
   cs <- many letterChar
-  pure $ Var $ pack (c : cs)
+  let name = pack (c : cs)
+  choice
+    [ try $ DictVar name <$> between (single '[') (single ']') expr
+    , pure $ Var name
+    ]
 
 --------------------------------------------------
 -- Label
@@ -260,11 +254,8 @@ intLit = do
   pure $ IntLit $ read x
 
 stringLit :: Parser Literal
-stringLit = do
-  single '"'
-  cs <- many stringChar
-  single '"'
-  pure $ StringLit $ pack cs
+stringLit =
+  StringLit . pack <$> between (single '"') (single '"') (many stringChar)
   where
     escaped str c = c <$ chunk str
 

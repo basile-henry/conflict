@@ -151,7 +151,10 @@ data Factor
 --
 --   It will print @"0\n"@, whereas if the @b = a + 2@ wasn't there it would
 --   infer the type of @a@ to be a String and print @"\n"@
-newtype Var = Var Text deriving (Show, Eq, Ord)
+data Var
+  = Var Text
+  | DictVar Text Expr
+  deriving (Show, Eq)
 
 -- | A label used to match anchors and GoTos (both conditional and
 --   unconditional).

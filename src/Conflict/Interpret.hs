@@ -1,5 +1,6 @@
-{-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE LambdaCase    #-}
+{-# LANGUAGE ApplicativeDo     #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Conflict.Interpret
   ( interpret
@@ -27,13 +28,15 @@ import           Control.Concurrent.STM.TVar (TVar)
 import qualified Control.Concurrent.STM.TVar as TVar
 
 -- text
+import           Data.Text                   (Text)
+import qualified Data.Text                   as Text
 import qualified Data.Text.IO                as Text
 
 -- conflict
 import           Conflict.AST
 
 -- | Map of all the vars used/defined to far
-newtype Vars = Vars (TVar (Map Var Literal))
+newtype Vars = Vars (TVar (Map Text Literal))
 
 interpret :: Program -> IO ()
 interpret (Program statements) = do
@@ -44,9 +47,24 @@ interpret (Program statements) = do
 -- Value utilities --
 ---------------------
 
+getKey :: Vars -> Var -> STM Text
+getKey vars var =
+  case var of
+    Var x       -> pure x
+    DictVar x e -> do
+      y <- interpretExpr vars e
+      pure $ Text.concat [x, "[", literalToString y, "]"]
+
 setVar :: Vars -> Var -> Literal -> STM ()
-setVar (Vars vars') var lit =
-  TVar.modifyTVar' vars' $ Map.insert var lit
+setVar vars@(Vars vars') var lit = do
+  key <- getKey vars var
+  TVar.modifyTVar' vars' $ Map.insert key lit
+
+getVar :: Vars -> Var -> STM Literal
+getVar vars@(Vars vars') var = do
+  key   <- getKey vars var
+  varsM <- TVar.readTVar vars'
+  pure . Maybe.fromMaybe (StringLit "") $ Map.lookup key varsM
 
 ---------------
 -- Statement --
@@ -181,10 +199,8 @@ interpretTerm vars =
 ------------
 
 interpretFactor :: Vars -> Factor -> STM Literal
-interpretFactor vars@(Vars varsTVar) = \case
-  Lit lit -> pure lit
-  Variable var -> do
-    varsMap <- TVar.readTVar varsTVar
-    pure . Maybe.fromMaybe (IntLit 0) $ Map.lookup var varsMap
+interpretFactor vars = \case
+  Lit lit      -> pure lit
+  Variable var -> getVar vars var
   Parens lExpr -> interpretLExpr vars lExpr
-  Not lExpr -> BoolLit . not . literalToBool <$> interpretLExpr vars lExpr
+  Not lExpr    -> BoolLit . not . literalToBool <$> interpretLExpr vars lExpr
