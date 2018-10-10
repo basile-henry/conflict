@@ -28,7 +28,7 @@ cabal new-build
 
 ## Examples
 
-A few example programs can be found in `examples`.
+A few example programs can be found in `examples`:
 
 ```sh
 $ conflict examples/hello.cflt 
@@ -38,6 +38,20 @@ Hello world!
 ```sh
 $ conflict examples/factorial.cflt <<< 50
 30414093201713378043612608166064768844377641568960512000000000000
+```
+
+An example of a conflict with concurrent semantics:
+
+```sh
+$ cat examples/hello-conf.cflt 
+<<<<<<<
+print "Hello"
+=======
+print "World"
+>>>>>>>
+$ conflict examples/hello-conf.cflt
+World
+Hello
 ```
 
 And for debugging the AST is available from the command line:
