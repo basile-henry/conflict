@@ -1,3 +1,4 @@
+{-# LANGUAGE ApplicativeDo     #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
 
@@ -9,7 +10,7 @@ module Conflict.Parser
 import           Control.Monad        (void)
 import           Data.Bifunctor       (first)
 import           Data.Void            (Void)
-import           Prelude              hiding (Ordering (..), print)
+import           Prelude              hiding (Ordering (..), not, print)
 
 -- text
 import           Data.Text            (Text, pack)
@@ -21,17 +22,15 @@ import           Text.Megaparsec.Char
 -- conflict
 import           Conflict.AST
 
-import           Debug.Trace
-
 type Parser = Parsec Void Text
 
 parser :: String -> Text -> Either String Program
-parser name input
+parser name
   = first errorBundlePretty
-  $ runParser program name input
+  . runParser program name
 
 program :: Parser Program
-program = Program <$> many statement  -- <* eof
+program = Program <$> many statement <* eof
 
 whitespace :: Parser ()
 whitespace = void $ many (char ' ' <|> char '\t')
@@ -267,8 +266,7 @@ stringLit = do
   single '"'
   pure $ StringLit $ pack cs
   where
-    escaped str char =
-      char <$ chunk str
+    escaped str c = c <$ chunk str
 
     stringChar =
       choice

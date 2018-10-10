@@ -1,4 +1,30 @@
-module Conflict.AST where
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Conflict.AST
+  ( -- * AST
+    Program (..)
+  , Statement (..)
+  , Expr (..)
+  , LExpr (..)
+  , Term (..)
+  , Factor (..)
+  , Var (..)
+  , Label (..)
+  , Literal (..)
+
+    -- * Literal helper functions
+  , literalToBool
+  , literalToInt
+  , literalToString
+  , isBool
+  , isInt
+  , isString
+  ) where
+
+-- base
+import           Data.Bool  (bool)
+import           Data.Maybe (fromMaybe)
 
 -- text
 import           Data.Text
@@ -125,11 +151,11 @@ data Factor
 --
 --   It will print @"0\n"@, whereas if the @b = a + 2@ wasn't there it would
 --   infer the type of @a@ to be a String and print @"\n"@
-newtype Var = Var Text deriving (Show, Eq)
+newtype Var = Var Text deriving (Show, Eq, Ord)
 
 -- | A label used to match anchors and GoTos (both conditional and
 --   unconditional).
-newtype Label = Label Text deriving (Show, Eq)
+newtype Label = Label Text deriving (Show, Eq, Ord)
 
 -- | Literals for boolean, strings, and integers
 --
@@ -154,3 +180,45 @@ data Literal
   --
   --   Strings support Unicode.
   deriving (Show, Eq)
+
+------------------------------
+-- Literal helper functions --
+------------------------------
+
+literalToBool :: Literal -> Bool
+literalToBool = \case
+  BoolLit b   -> b
+  IntLit i    -> i /= 0
+  StringLit s -> s /= ""
+
+literalToInt :: Literal -> Integer
+literalToInt = \case
+  BoolLit b   -> bool 0 1 b
+  IntLit i    -> i
+  StringLit s -> fromMaybe 0 $ readMaybe s
+  where
+    readMaybe s =
+      case reads $ unpack s of
+        [(x, "")] -> Just x
+        _         -> Nothing
+
+literalToString :: Literal -> Text
+literalToString = \case
+  BoolLit b   -> pack $ show b
+  IntLit i    -> pack $ show i
+  StringLit s -> s
+
+isBool :: Literal -> Bool
+isBool = \case
+  BoolLit _ -> True
+  _         -> False
+
+isInt :: Literal -> Bool
+isInt = \case
+  IntLit _ -> True
+  _        -> False
+
+isString :: Literal -> Bool
+isString = \case
+  StringLit _ -> True
+  _           -> False
