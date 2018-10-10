@@ -1,77 +1,99 @@
 {-# LANGUAGE ApplicativeDo     #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Conflict.Interpret
   ( interpret
   ) where
 
 -- base
-import           Control.Concurrent          (forkIO)
-import qualified Control.Concurrent.MVar     as MVar
-import           Control.Monad               (void)
-import qualified Data.Maybe                  as Maybe
-import           Prelude                     hiding (Ordering (..))
+import           Control.Concurrent           (forkIO)
+import qualified Control.Concurrent.MVar      as MVar
+import           Control.Monad                (forever, void)
+import qualified Data.Maybe                   as Maybe
+import           Prelude                      hiding (Ordering (..), read)
 
 -- containers
-import           Data.Map                    (Map)
-import qualified Data.Map                    as Map
-import qualified Data.Sequence               as Seq
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
+import qualified Data.Sequence                as Seq
 
 -- monad-extras
-import           Control.Monad.Loops         (unfoldrM)
+import           Control.Monad.Loops          (unfoldrM)
 
 -- stm
-import           Control.Concurrent.STM      (STM)
-import qualified Control.Concurrent.STM      as STM
-import           Control.Concurrent.STM.TVar (TVar)
-import qualified Control.Concurrent.STM.TVar as TVar
+import           Control.Concurrent.STM       (STM)
+import qualified Control.Concurrent.STM       as STM
+import           Control.Concurrent.STM.TMVar (TMVar)
+import qualified Control.Concurrent.STM.TMVar as TMVar
+import           Control.Concurrent.STM.TVar  (TVar)
+import qualified Control.Concurrent.STM.TVar  as TVar
 
 -- text
-import           Data.Text                   (Text)
-import qualified Data.Text                   as Text
-import qualified Data.Text.IO                as Text
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+import qualified Data.Text.IO                 as Text
 
 -- conflict
 import           Conflict.AST
 
--- | Map of all the vars used/defined to far
-newtype Vars = Vars (TVar (Map Text Literal))
+data Context =
+  Context
+    { vars  :: TVar (Map Text Literal)
+    , read  :: TMVar Text
+    , write :: TMVar Text
+    }
 
 interpret :: Program -> IO ()
 interpret (Program statements) = do
-  vars <- TVar.newTVarIO Map.empty
-  interpretStatements (Vars vars) statements
+  context <- STM.atomically $ do
+    vars  <- TVar.newTVar Map.empty
+    read  <- TMVar.newEmptyTMVar
+    write <- TMVar.newEmptyTMVar
+    pure Context{..}
+
+  -- Reader thread
+  forkIO . forever $ do
+    line <- Text.getLine
+    STM.atomically $ TMVar.putTMVar (read context) line
+
+  -- Writer thread
+  forkIO . forever $ do
+    line <- STM.atomically $ TMVar.takeTMVar (write context)
+    Text.putStrLn line
+
+  interpretStatements context statements
 
 ---------------------
 -- Value utilities --
 ---------------------
 
-getKey :: Vars -> Var -> STM Text
-getKey vars var =
+getKey :: Context -> Var -> STM Text
+getKey context var =
   case var of
     Var x       -> pure x
     DictVar x e -> do
-      y <- interpretExpr vars e
+      y <- interpretExpr context e
       pure $ Text.concat [x, "[", literalToString y, "]"]
 
-setVar :: Vars -> Var -> Literal -> STM ()
-setVar vars@(Vars vars') var lit = do
-  key <- getKey vars var
-  TVar.modifyTVar' vars' $ Map.insert key lit
+setVar :: Context -> Var -> Literal -> STM ()
+setVar context var lit = do
+  key <- getKey context var
+  TVar.modifyTVar' (vars context) $ Map.insert key lit
 
-getVar :: Vars -> Var -> STM Literal
-getVar vars@(Vars vars') var = do
-  key   <- getKey vars var
-  varsM <- TVar.readTVar vars'
+getVar :: Context -> Var -> STM Literal
+getVar context var = do
+  key   <- getKey context var
+  varsM <- TVar.readTVar $ vars context
   pure . Maybe.fromMaybe (StringLit "") $ Map.lookup key varsM
 
 ---------------
 -- Statement --
 ---------------
 
-interpretStatements :: Vars -> [Statement] -> IO ()
-interpretStatements vars statements = do
+interpretStatements :: Context -> [Statement] -> IO ()
+interpretStatements context statements = do
   let anchors
         = Map.fromList
         . Maybe.mapMaybe (\case
@@ -79,7 +101,7 @@ interpretStatements vars statements = do
             _                     -> Nothing)
         $ zip statements [0..]
 
-      statements' = interpretStatement vars <$> Seq.fromList statements
+      statements' = interpretStatement context <$> Seq.fromList statements
 
   void . flip unfoldrM 0 $ \i ->
     case Seq.lookup i statements' of
@@ -94,24 +116,24 @@ interpretStatements vars statements = do
         -- Go to the next index or use the one after the label
         pure $ Just ((), succ programCounter)
 
-interpretStatement :: Vars -> Statement -> IO (Maybe Label)
-interpretStatement vars = \case
+interpretStatement :: Context -> Statement -> IO (Maybe Label)
+interpretStatement context = \case
   Conflict a b -> do
     doneFlag <- MVar.newEmptyMVar
 
     forkIO $ do
-      interpretStatements vars a
+      interpretStatements context a
       MVar.putMVar doneFlag True
 
-    interpretStatements vars b
+    interpretStatements context b
     -- Block until other thread is done
     MVar.readMVar doneFlag
 
     pure Nothing
 
   Assign var expr -> STM.atomically $ do
-    value <- interpretExpr vars expr
-    setVar vars var value
+    value <- interpretExpr context expr
+    setVar context var value
     pure Nothing
 
   Anchor _ -> pure Nothing
@@ -119,31 +141,31 @@ interpretStatement vars = \case
   GoTo label -> pure $ Just label
 
   Branch expr label -> STM.atomically $ do
-    value <- interpretExpr vars expr
+    value <- interpretExpr context expr
     pure $
       if literalToBool value
       then Just label
       else Nothing
 
-  Print expr -> do
-    value <- STM.atomically $ interpretExpr vars expr
-    Text.putStrLn $ literalToString value
+  Print expr -> STM.atomically $ do
+    value <- interpretExpr context expr
+    TMVar.putTMVar (write context) $ literalToString value
     pure Nothing
 
-  Input var -> do
-    line <- Text.getLine
-    STM.atomically $ setVar vars var $ StringLit line
+  Input var -> STM.atomically $ do
+    line <- TMVar.takeTMVar (read context)
+    setVar context var $ StringLit line
     pure Nothing
 
 ----------------
 -- Expression --
 ----------------
 
-interpretExpr :: Vars -> Expr -> STM Literal
-interpretExpr vars =
+interpretExpr :: Context -> Expr -> STM Literal
+interpretExpr context =
   let boolExpr f aExpr bExpr = do
-        a <- interpretLExpr vars aExpr
-        b <- interpretLExpr vars bExpr
+        a <- interpretLExpr context aExpr
+        b <- interpretLExpr context bExpr
         let toInt = IntLit . literalToInt
             res
               | sameType a b = f a b
@@ -156,58 +178,58 @@ interpretExpr vars =
     LE a b -> boolExpr (<=) a b
     NE a b -> boolExpr (/=) a b
     EQ a b -> boolExpr (==) a b
-    Expr e -> interpretLExpr vars e
+    Expr e -> interpretLExpr context e
 
 -----------------
 -- LExpression --
 -----------------
 
-interpretLExpr :: Vars -> LExpr -> STM Literal
-interpretLExpr vars = \case
+interpretLExpr :: Context -> LExpr -> STM Literal
+interpretLExpr context = \case
   Plus aLExpr bLExpr -> do
-    a <- interpretTerm vars aLExpr
-    b <- interpretLExpr vars bLExpr
+    a <- interpretTerm context aLExpr
+    b <- interpretLExpr context bLExpr
     pure $
       if isString a || isString b
       then StringLit $ literalToString a <> literalToString b
       else IntLit $ literalToInt a + literalToInt b
   Sub aLExpr bLExpr -> do
-    a <- interpretTerm vars aLExpr
-    b <- interpretLExpr vars bLExpr
+    a <- interpretTerm context aLExpr
+    b <- interpretLExpr context bLExpr
     pure $ IntLit $ literalToInt a - literalToInt b
   Or aLExpr bLExpr -> do
-    a <- interpretTerm vars aLExpr
-    b <- interpretLExpr vars bLExpr
+    a <- interpretTerm context aLExpr
+    b <- interpretLExpr context bLExpr
     pure $ BoolLit $ literalToBool a || literalToBool b
-  LExpr e -> interpretTerm vars e
+  LExpr e -> interpretTerm context e
 
 ----------
 -- Term --
 ----------
 
-interpretTerm :: Vars -> Term -> STM Literal
-interpretTerm vars =
+interpretTerm :: Context -> Term -> STM Literal
+interpretTerm context =
   let intTerm g f t = do
-        a <- interpretFactor vars f
-        b <- interpretTerm vars t
+        a <- interpretFactor context f
+        b <- interpretTerm context t
         pure . IntLit $ g (literalToInt a) (literalToInt b)
   in  \case
     Mul a b -> intTerm (*) a b
     Div a b -> intTerm div a b
     Mod a b -> intTerm mod a b
     And f t -> do
-      a <- interpretFactor vars f
-      b <- interpretTerm vars t
+      a <- interpretFactor context f
+      b <- interpretTerm context t
       pure . BoolLit $ literalToBool a && literalToBool b
-    Term f -> interpretFactor vars f
+    Term f -> interpretFactor context f
 
 ------------
 -- Factor --
 ------------
 
-interpretFactor :: Vars -> Factor -> STM Literal
-interpretFactor vars = \case
+interpretFactor :: Context -> Factor -> STM Literal
+interpretFactor context = \case
   Lit lit      -> pure lit
-  Variable var -> getVar vars var
-  Parens lExpr -> interpretLExpr vars lExpr
-  Not lExpr    -> BoolLit . not . literalToBool <$> interpretLExpr vars lExpr
+  Variable var -> getVar context var
+  Parens lExpr -> interpretLExpr context lExpr
+  Not lExpr    -> BoolLit . not . literalToBool <$> interpretLExpr context lExpr
