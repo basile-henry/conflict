@@ -29,10 +29,7 @@ parser name
   . runParser program name
 
 program :: Parser Program
-program
-  =   Program
-  <$> many (many endOfLine *> statement <* many endOfLine)
-  <*  eof
+program = Program <$> statements <* eof
 
 whitespace :: Parser ()
 whitespace = void $ many (char ' ' <|> char '\t')
@@ -45,12 +42,14 @@ endOfLine = do
   where
     comment = try $ do
       void $ chunk "//"
-      void $ many (anySingleBut '\n')
-      void newline
+      void $ skipManyTill (anySingleBut '\n') newline
 
 --------------------------------------------------
 -- Statement
 --------------------------------------------------
+
+statements :: Parser [Statement]
+statements = many (many endOfLine *> statement <* many endOfLine)
 
 statement :: Parser Statement
 statement =
@@ -67,9 +66,9 @@ statement =
 conflict :: Parser Statement
 conflict = do
   conflictLine "<<<<<<<"
-  as <- many statement
+  as <- statements
   conflictLine "======="
-  bs <- many statement
+  bs <- statements
   conflictLine ">>>>>>>"
   pure $ Conflict as bs
   where
@@ -87,7 +86,7 @@ assign = do
   pure $ Assign v e
 
 anchor :: Parser Statement
-anchor = Anchor <$> between (single '[') (single ']') label
+anchor = Anchor <$> label
 
 goto :: Parser Statement
 goto = do
@@ -134,7 +133,7 @@ expr = do
   choice
     [ helper GT ">"
     , helper LT "<"
-    , helper GE "<="
+    , helper GE ">="
     , helper LE "<="
     , helper NE "!="
     , helper EQ "=="
@@ -220,7 +219,7 @@ var = do
 --------------------------------------------------
 
 label :: Parser Label
-label = do
+label = between (single '[') (single ']') $ do
   c  <- lowerChar
   cs <- many letterChar
   pure $ Label $ pack (c : cs)

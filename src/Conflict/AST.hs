@@ -14,6 +14,7 @@ module Conflict.AST
   , Literal (..)
 
     -- * Literal helper functions
+  , sameType
   , literalToBool
   , literalToInt
   , literalToString
@@ -93,7 +94,7 @@ data LExpr
   -- ^ Add two expressions:
   --
   --   - Addition on two Integers
-  --   - Concatanation on two Strings
+  --   - Concatanation on two Strings (or at least one string)
   --   - Cast both to Integers and do addition otherwise
   --
   -- Results in an Integer.
@@ -139,18 +140,6 @@ data Factor
 --   - Integers: @0@
 --   - Strings: empty string
 --   - Bool: False
---
---   Be careful, the type is inferred from the first use site of a variable.
---
---   Here, if @a@ is undefined:
---
---   @
---   b = a + 2
---   print "$a"
---   @
---
---   It will print @"0\n"@, whereas if the @b = a + 2@ wasn't there it would
---   infer the type of @a@ to be a String and print @"\n"@
 data Var
   = Var Text
   | DictVar Text Expr
@@ -182,11 +171,17 @@ data Literal
   --   @
   --
   --   Strings support Unicode.
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 ------------------------------
 -- Literal helper functions --
 ------------------------------
+
+sameType :: Literal -> Literal -> Bool
+sameType (BoolLit   _) (BoolLit   _) = True
+sameType (IntLit    _) (IntLit    _) = True
+sameType (StringLit _) (StringLit _) = True
+sameType _             _             = False
 
 literalToBool :: Literal -> Bool
 literalToBool = \case

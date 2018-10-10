@@ -14,7 +14,7 @@ main :: IO ()
 main = do
   let useAst file f = do
         input <- Text.readFile file
-        case parser "stdin" input of
+        case parser file input of
           Right ast -> f ast
           Left  err -> putStrLn err
   args <- getArgs

@@ -1,0 +1,14 @@
+// Input from the user
+input n
+x = n
+
+// Loop until n is less than or equal to 1
+[start]
+if n <= 1 [end]
+n = n - 1
+x = x * n
+goto [start]
+
+// Print result
+[end]
+print x

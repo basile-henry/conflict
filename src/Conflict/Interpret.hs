@@ -86,10 +86,13 @@ interpretStatements vars statements = do
       Nothing       -> pure Nothing
       Just getLabel -> do
         label <- getLabel
+        let programCounter =
+              Maybe.fromMaybe i $ do
+                l <- label
+                Map.lookup l anchors
+
         -- Go to the next index or use the one after the label
-        pure . Just . (,) () . maybe (succ i) succ $ do
-          l <- label
-          Map.lookup l anchors
+        pure $ Just ((), succ programCounter)
 
 interpretStatement :: Vars -> Statement -> IO (Maybe Label)
 interpretStatement vars = \case
@@ -141,7 +144,11 @@ interpretExpr vars =
   let boolExpr f aExpr bExpr = do
         a <- interpretLExpr vars aExpr
         b <- interpretLExpr vars bExpr
-        pure . BoolLit $ f (literalToBool a) (literalToBool b)
+        let toInt = IntLit . literalToInt
+            res
+              | sameType a b = f a b
+              | otherwise    = f (toInt a) (toInt b)
+        pure $ BoolLit res
   in  \case
     GT a b -> boolExpr (>)  a b
     LT a b -> boolExpr (<)  a b
@@ -151,9 +158,9 @@ interpretExpr vars =
     EQ a b -> boolExpr (==) a b
     Expr e -> interpretLExpr vars e
 
----------------------
--- Left Expression --
----------------------
+-----------------
+-- LExpression --
+-----------------
 
 interpretLExpr :: Vars -> LExpr -> STM Literal
 interpretLExpr vars = \case
@@ -161,7 +168,7 @@ interpretLExpr vars = \case
     a <- interpretTerm vars aLExpr
     b <- interpretLExpr vars bLExpr
     pure $
-      if isString a && isString b
+      if isString a || isString b
       then StringLit $ literalToString a <> literalToString b
       else IntLit $ literalToInt a + literalToInt b
   Sub aLExpr bLExpr -> do

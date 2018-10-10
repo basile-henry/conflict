@@ -1,0 +1,24 @@
+length = 10
+
+// Initialise an array with 10 elements
+i = 0
+[fillArray]
+array[i] = i * 2
+i = i + 1
+if i < length [fillArray]
+
+// Accumulate along the array
+i = 0
+acc = 0
+[scan]
+acc = acc + array[i]
+array[i] = acc
+i = i + 1
+if i < length [scan]
+
+// Print array elements
+i = 0
+[print]
+print "array[" + i + "]" + "=" + array[i]
+i = i + 1
+if i < length [print]
