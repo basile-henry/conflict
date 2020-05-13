@@ -1,7 +1,5 @@
-{ nixpkgs ? import <nixpkgs> {}, compiler ? "ghc843" }:
+{ nixpkgs ? import ./nixpkgs.nix {}, compiler ? "ghc865" }:
 
 with nixpkgs.pkgs.haskell;
 
-lib.failOnAllWarnings (packages.${compiler}.callCabal2nix "conflict" ./.  {
-  megaparsec = packages.${compiler}.megaparsec_7_0_1;
-})
+lib.failOnAllWarnings (packages.${compiler}.callCabal2nix "conflict" ./.  {})
