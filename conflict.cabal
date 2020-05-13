@@ -29,7 +29,7 @@ library
   exposed-modules:     Conflict.AST
                        Conflict.Interpret
                        Conflict.Parser
-  build-depends:       base >=4.11 && <4.12
+  build-depends:       base >=4.11 && <4.13
                      , containers
                      , megaparsec >= 7.0 && < 8.0
                      , monad-loops
@@ -41,7 +41,7 @@ library
 
 executable conflict
   main-is:             Main.hs
-  build-depends:       base >=4.11 && <4.12
+  build-depends:       base >=4.11 && <4.13
                      , conflict
                      , text
   hs-source-dirs:      app
