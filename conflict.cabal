@@ -46,4 +46,4 @@ executable conflict
                      , text
   hs-source-dirs:      app
   default-language:    Haskell2010
-  ghc-options:         -Wall -threaded
+  ghc-options:         -Wall -O2 -threaded -with-rtsopts=-N
